@@ -126,9 +126,9 @@ export default function AshopPage() {
     try {
       const res = await fetch("/api/products");
       const data = await res.json();
-      setProducts(data);
+      setProducts(Array.isArray(data) ? data : []);
     } catch {
-      // Error
+      setProducts([]);
     }
   };
 
@@ -136,9 +136,9 @@ export default function AshopPage() {
     try {
       const res = await fetch("/api/orders");
       const data = await res.json();
-      setOrders(data);
+      setOrders(Array.isArray(data) ? data : []);
     } catch {
-      // Error
+      setOrders([]);
     }
   };
 
@@ -146,7 +146,16 @@ export default function AshopPage() {
     try {
       const res = await fetch("/api/admin");
       const data = await res.json();
-      setStats(data);
+      if (data && !data.error) {
+        setStats({
+          products: data.products || 0,
+          orders: data.orders || 0,
+          hireRequests: data.hireRequests || 0,
+          revenue: data.revenue || 0,
+          pendingHireRequests: Array.isArray(data.pendingHireRequests) ? data.pendingHireRequests : [],
+          recentOrders: Array.isArray(data.recentOrders) ? data.recentOrders : [],
+        });
+      }
     } catch {
       // Error
     }
@@ -335,13 +344,13 @@ export default function AshopPage() {
     }
   };
 
-  const filteredProducts = products.filter((p) =>
+  const filteredProducts = Array.isArray(products) ? products.filter((p) =>
     p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.category.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ) : [];
 
   const isPurchased = (productId: string) => {
-    return orders.some((o) => o.product.id === productId);
+    return Array.isArray(orders) && orders.some((o) => o.product?.id === productId);
   };
 
   return (
