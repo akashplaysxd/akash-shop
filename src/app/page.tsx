@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ShoppingCart, Store, Plus, Search, User, LogIn, LogOut,
-  Package, DollarSign, TrendingUp, Bell, Settings, X, Upload,
-  Eye, Download, Trash2, Edit, ExternalLink, Menu, Home, Users
+  ShoppingCart, Code, Plus, Search, User, LogIn, LogOut,
+  Package, DollarSign, Briefcase, Settings, X, Download,
+  Trash2, Menu, Home, FileCode, Users, Mail, Clock
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 
@@ -16,25 +16,15 @@ interface UserType {
   role: string;
 }
 
-interface Shop {
-  id: string;
-  name: string;
-  description?: string;
-  logoUrl?: string;
-  userId: string;
-  createdAt: string;
-  _count?: { products: number };
-}
-
 interface Product {
   id: string;
   title: string;
-  description?: string;
+  description: string | null;
   price: number;
-  thumbnailUrl?: string;
-  fileUrl?: string;
-  shopId: string;
-  shop?: Shop;
+  category: string;
+  thumbnailUrl: string | null;
+  fileUrl: string | null;
+  featured: boolean;
   createdAt: string;
 }
 
@@ -42,17 +32,30 @@ interface Order {
   id: string;
   amount: number;
   status: string;
+  email: string;
   createdAt: string;
   product: Product;
 }
 
+interface HireRequest {
+  id: string;
+  name: string;
+  email: string;
+  projectName: string;
+  description: string;
+  budget: number;
+  timeline: string | null;
+  status: string;
+  createdAt: string;
+}
+
 interface Stats {
-  users: number;
-  shops: number;
   products: number;
   orders: number;
+  hireRequests: number;
   revenue: number;
-  unreadNotifications: number;
+  pendingHireRequests: HireRequest[];
+  recentOrders: Order[];
 }
 
 export default function AshopPage() {
@@ -64,59 +67,58 @@ export default function AshopPage() {
   const [showAuth, setShowAuth] = useState(false);
 
   // View
-  const [view, setView] = useState<"home" | "shops" | "products" | "orders" | "admin" | "myshop">("home");
+  const [view, setView] = useState<"home" | "products" | "hire" | "orders" | "admin">("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Data
-  const [shops, setShops] = useState<Shop[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [myShop, setMyShop] = useState<Shop | null>(null);
-  const [myProducts, setMyProducts] = useState<Product[]>([]);
 
   // Modals
-  const [showCreateShop, setShowCreateShop] = useState(false);
-  const [showCreateProduct, setShowCreateProduct] = useState(false);
   const [showProduct, setShowProduct] = useState<Product | null>(null);
+  const [showHire, setShowHire] = useState(false);
+  const [showAddProduct, setShowAddProduct] = useState(false);
 
   // Forms
-  const [shopName, setShopName] = useState("");
-  const [shopDesc, setShopDesc] = useState("");
   const [productTitle, setProductTitle] = useState("");
   const [productDesc, setProductDesc] = useState("");
   const [productPrice, setProductPrice] = useState("");
+  const [productCategory, setProductCategory] = useState("source-code");
   const [productFile, setProductFile] = useState("");
   const [productThumb, setProductThumb] = useState("");
+  const [productFeatured, setProductFeatured] = useState(false);
+
+  // Hire form
+  const [hireName, setHireName] = useState("");
+  const [hireEmail, setHireEmail] = useState("");
+  const [hireProject, setHireProject] = useState("");
+  const [hireDesc, setHireDesc] = useState("");
+  const [hireBudget, setHireBudget] = useState("");
+  const [hireTimeline, setHireTimeline] = useState("");
 
   // Search
   const [searchQuery, setSearchQuery] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // Define functions first
+  useEffect(() => {
+    void checkAuth();
+    void fetchProducts();
+  }, []);
+
   const checkAuth = async () => {
     try {
       const res = await fetch("/api/auth/me");
       const data = await res.json();
       if (data.user) {
         setUser(data.user);
-        fetchMyShop(data.user.userId);
-        fetchOrders();
         if (data.user.role === "admin") {
-          fetchStats();
+          void fetchStats();
         }
+        void fetchOrders();
       }
     } catch {
       // Not logged in
-    }
-  };
-
-  const fetchShops = async () => {
-    try {
-      const res = await fetch("/api/shop");
-      const data = await res.json();
-      setShops(data);
-    } catch {
-      // Error
     }
   };
 
@@ -125,29 +127,6 @@ export default function AshopPage() {
       const res = await fetch("/api/products");
       const data = await res.json();
       setProducts(data);
-    } catch {
-      // Error
-    }
-  };
-
-  const fetchMyShop = async (userId: string) => {
-    try {
-      const res = await fetch(`/api/shop?userId=${userId}`);
-      const data = await res.json();
-      if (data.length > 0) {
-        setMyShop(data[0]);
-        fetchMyProducts(data[0].id);
-      }
-    } catch {
-      // Error
-    }
-  };
-
-  const fetchMyProducts = async (shopId: string) => {
-    try {
-      const res = await fetch(`/api/products?shopId=${shopId}`);
-      const data = await res.json();
-      setMyProducts(data);
     } catch {
       // Error
     }
@@ -179,6 +158,7 @@ export default function AshopPage() {
       return;
     }
 
+    setLoading(true);
     try {
       const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
       const res = await fetch(endpoint, {
@@ -199,51 +179,20 @@ export default function AshopPage() {
       setEmail("");
       setPassword("");
       toast.success(authMode === "login" ? "Welcome back!" : "Account created!");
-      checkAuth();
+      void checkAuth();
     } catch {
       toast.error("Something went wrong");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     setUser(null);
-    setMyShop(null);
-    setMyProducts([]);
-    setOrders([]);
     setStats(null);
+    setOrders([]);
     toast.success("Logged out");
-  };
-
-  const createShop = async () => {
-    if (!shopName.trim()) {
-      toast.error("Shop name required");
-      return;
-    }
-
-    try {
-      const res = await fetch("/api/shop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: shopName, description: shopDesc }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        toast.error(data.error);
-        return;
-      }
-
-      setMyShop(data);
-      setShowCreateShop(false);
-      setShopName("");
-      setShopDesc("");
-      toast.success("Shop created!");
-      fetchShops();
-    } catch {
-      toast.error("Failed to create shop");
-    }
   };
 
   const createProduct = async () => {
@@ -252,22 +201,18 @@ export default function AshopPage() {
       return;
     }
 
-    if (!myShop) {
-      toast.error("Create a shop first");
-      return;
-    }
-
     try {
-      const res = await fetch("/api/products", {
+      const res = await fetch("/api/admin/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shopId: myShop.id,
           title: productTitle,
           description: productDesc,
           price: productPrice,
+          category: productCategory,
           fileUrl: productFile,
           thumbnailUrl: productThumb,
+          featured: productFeatured,
         }),
       });
 
@@ -278,31 +223,41 @@ export default function AshopPage() {
         return;
       }
 
-      setShowCreateProduct(false);
+      setShowAddProduct(false);
       setProductTitle("");
       setProductDesc("");
       setProductPrice("");
       setProductFile("");
       setProductThumb("");
+      setProductFeatured(false);
       toast.success("Product created!");
-      fetchMyProducts(myShop.id);
-      fetchProducts();
+      void fetchProducts();
     } catch {
       toast.error("Failed to create product");
     }
   };
 
-  const buyProduct = async (productId: string) => {
-    if (!user) {
-      setShowAuth(true);
-      return;
+  const deleteProduct = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/products?id=${id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Product deleted");
+        void fetchProducts();
+      }
+    } catch {
+      toast.error("Failed to delete");
     }
+  };
+
+  const buyProduct = async (product: Product) => {
+    const buyerEmail = prompt("Enter your email for delivery:");
+    if (!buyerEmail) return;
 
     try {
       const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId }),
+        body: JSON.stringify({ productId: product.id, email: buyerEmail }),
       });
 
       const data = await res.json();
@@ -312,42 +267,82 @@ export default function AshopPage() {
         return;
       }
 
-      toast.success("Purchase successful! Check your orders.");
-      fetchOrders();
+      toast.success("Purchase successful! Check your email for download link.");
       setShowProduct(null);
+      void fetchOrders();
     } catch {
       toast.error("Failed to purchase");
     }
   };
 
-  const deleteProduct = async (id: string) => {
+  const submitHireRequest = async () => {
+    if (!hireName || !hireEmail || !hireProject || !hireDesc || !hireBudget) {
+      toast.error("Please fill all required fields");
+      return;
+    }
+
+    setLoading(true);
     try {
-      const res = await fetch(`/api/products?id=${id}`, { method: "DELETE" });
+      const res = await fetch("/api/hire", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: hireName,
+          email: hireEmail,
+          projectName: hireProject,
+          description: hireDesc,
+          budget: hireBudget,
+          timeline: hireTimeline,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data.error);
+        return;
+      }
+
+      toast.success("Request submitted! I'll get back to you soon.");
+      setShowHire(false);
+      setHireName("");
+      setHireEmail("");
+      setHireProject("");
+      setHireDesc("");
+      setHireBudget("");
+      setHireTimeline("");
+    } catch {
+      toast.error("Failed to submit request");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateHireStatus = async (id: string, status: string) => {
+    try {
+      const res = await fetch("/api/hire", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+
       if (res.ok) {
-        toast.success("Product deleted");
-        if (myShop) fetchMyProducts(myShop.id);
-        fetchProducts();
+        toast.success(`Request ${status}`);
+        void fetchStats();
       }
     } catch {
-      toast.error("Failed to delete");
+      toast.error("Failed to update");
     }
   };
 
   const filteredProducts = products.filter((p) =>
-    p.title.toLowerCase().includes(searchQuery.toLowerCase())
+    p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    p.category.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const isPurchased = (productId: string) => {
     return orders.some((o) => o.product.id === productId);
   };
-
-  // Run on mount
-  useEffect(() => {
-    void checkAuth();
-    void fetchShops();
-    void fetchProducts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
@@ -361,8 +356,9 @@ export default function AshopPage() {
               <Menu className="w-5 h-5" />
             </button>
             <h1 className="text-xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
-              Ashop
+              AkashShop
             </h1>
+            <span className="hidden sm:inline text-sm text-gray-400">Source Code & Hire Me</span>
           </div>
 
           <div className="flex-1 max-w-md mx-4">
@@ -404,29 +400,23 @@ export default function AshopPage() {
           <button onClick={() => { setView("home"); setSidebarOpen(false); }} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 ${view === "home" ? "bg-green-500/20 text-green-400" : "hover:bg-[var(--background)]"}`}>
             <Home className="w-5 h-5" /> Home
           </button>
-          <button onClick={() => { setView("shops"); setSidebarOpen(false); }} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 ${view === "shops" ? "bg-green-500/20 text-green-400" : "hover:bg-[var(--background)]"}`}>
-            <Store className="w-5 h-5" /> Shops
-          </button>
           <button onClick={() => { setView("products"); setSidebarOpen(false); }} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 ${view === "products" ? "bg-green-500/20 text-green-400" : "hover:bg-[var(--background)]"}`}>
-            <Package className="w-5 h-5" /> Products
+            <Package className="w-5 h-5" /> Products ({products.length})
+          </button>
+          <button onClick={() => { setShowHire(true); setSidebarOpen(false); }} className="w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 hover:bg-[var(--background)] text-green-400">
+            <Briefcase className="w-5 h-5" /> Hire Me
           </button>
 
           {user && (
-            <>
-              <div className="border-t border-[var(--border)] my-4" />
-              <button onClick={() => { setView("myshop"); setSidebarOpen(false); }} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 ${view === "myshop" ? "bg-green-500/20 text-green-400" : "hover:bg-[var(--background)]"}`}>
-                <Store className="w-5 h-5" /> My Shop
-              </button>
-              <button onClick={() => { setView("orders"); setSidebarOpen(false); }} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 ${view === "orders" ? "bg-green-500/20 text-green-400" : "hover:bg-[var(--background)]"}`}>
-                <ShoppingCart className="w-5 h-5" /> My Orders ({orders.length})
-              </button>
-            </>
+            <button onClick={() => { setView("orders"); setSidebarOpen(false); }} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 ${view === "orders" ? "bg-green-500/20 text-green-400" : "hover:bg-[var(--background)]"}`}>
+              <ShoppingCart className="w-5 h-5" /> My Orders ({orders.length})
+            </button>
           )}
 
           {user?.role === "admin" && (
             <>
               <div className="border-t border-[var(--border)] my-4" />
-              <button onClick={() => { setView("admin"); setSidebarOpen(false); }} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 ${view === "admin" ? "bg-green-500/20 text-green-400" : "hover:bg-[var(--background)]"}`}>
+              <button onClick={() => { setView("admin"); setSidebarOpen(false); void fetchStats(); }} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 ${view === "admin" ? "bg-green-500/20 text-green-400" : "hover:bg-[var(--background)]"}`}>
                 <Settings className="w-5 h-5" /> Admin Panel
               </button>
             </>
@@ -442,28 +432,23 @@ export default function AshopPage() {
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center py-12">
               <h1 className="text-5xl font-bold mb-4">
                 <span className="bg-gradient-to-r from-green-400 via-emerald-400 to-teal-400 bg-clip-text text-transparent">
-                  Sell Digital Products
+                  Premium Source Code
                 </span>
               </h1>
-              <p className="text-xl text-gray-400 mb-8">The simplest way to sell files, templates, and digital goods</p>
-              {!user ? (
-                <button onClick={() => setShowAuth(true)} className="px-8 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-bold text-lg hover:opacity-90">
-                  Get Started Free
+              <p className="text-xl text-gray-400 mb-4">Buy production-ready code or hire me for your project</p>
+              <div className="flex gap-4 justify-center">
+                <button onClick={() => setView("products")} className="px-6 py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-bold hover:opacity-90">
+                  Browse Code
                 </button>
-              ) : !myShop ? (
-                <button onClick={() => setShowCreateShop(true)} className="px-8 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-bold text-lg hover:opacity-90">
-                  Create Your Shop
+                <button onClick={() => setShowHire(true)} className="px-6 py-3 rounded-xl border border-green-500 text-green-400 font-bold hover:bg-green-500/10">
+                  Hire Me
                 </button>
-              ) : (
-                <button onClick={() => setView("myshop")} className="px-8 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-bold text-lg hover:opacity-90">
-                  Go to My Shop
-                </button>
-              )}
+              </div>
             </motion.div>
 
             <h2 className="text-2xl font-bold mb-6">Featured Products</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredProducts.slice(0, 8).map((product, index) => (
+              {filteredProducts.filter(p => p.featured).slice(0, 4).map((product, index) => (
                 <motion.div
                   key={product.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -476,47 +461,14 @@ export default function AshopPage() {
                     {product.thumbnailUrl ? (
                       <img src={product.thumbnailUrl} alt={product.title} className="w-full h-full object-cover" />
                     ) : (
-                      <Package className="w-12 h-12 text-green-400" />
+                      <FileCode className="w-12 h-12 text-green-400" />
                     )}
                   </div>
                   <div className="p-4">
-                    <h3 className="font-semibold truncate">{product.title}</h3>
-                    <p className="text-sm text-gray-400 truncate">{product.shop?.name}</p>
+                    <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400">{product.category}</span>
+                    <h3 className="font-semibold truncate mt-2">{product.title}</h3>
                     <p className="text-lg font-bold text-green-400 mt-2">${product.price.toFixed(2)}</p>
                   </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Shops View */}
-        {view === "shops" && (
-          <div className="max-w-7xl mx-auto">
-            <h2 className="text-2xl font-bold mb-6">All Shops</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {shops.map((shop, index) => (
-                <motion.div
-                  key={shop.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-6 hover:border-green-500/50 transition-colors"
-                >
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
-                      {shop.logoUrl ? (
-                        <img src={shop.logoUrl} alt={shop.name} className="w-full h-full object-cover rounded-lg" />
-                      ) : (
-                        <Store className="w-6 h-6 text-white" />
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="font-semibold">{shop.name}</h3>
-                      <p className="text-sm text-gray-400">{shop._count?.products || 0} products</p>
-                    </div>
-                  </div>
-                  {shop.description && <p className="text-sm text-gray-400">{shop.description}</p>}
                 </motion.div>
               ))}
             </div>
@@ -526,7 +478,14 @@ export default function AshopPage() {
         {/* Products View */}
         {view === "products" && (
           <div className="max-w-7xl mx-auto">
-            <h2 className="text-2xl font-bold mb-6">All Products</h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold">All Products</h2>
+              {user?.role === "admin" && (
+                <button onClick={() => setShowAddProduct(true)} className="px-4 py-2 rounded-lg bg-green-500 text-black font-medium flex items-center gap-2">
+                  <Plus className="w-4 h-4" /> Add Product
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredProducts.map((product, index) => (
                 <motion.div
@@ -541,13 +500,18 @@ export default function AshopPage() {
                     {product.thumbnailUrl ? (
                       <img src={product.thumbnailUrl} alt={product.title} className="w-full h-full object-cover" />
                     ) : (
-                      <Package className="w-12 h-12 text-green-400" />
+                      <FileCode className="w-12 h-12 text-green-400" />
                     )}
                   </div>
                   <div className="p-4">
-                    <h3 className="font-semibold truncate">{product.title}</h3>
-                    <p className="text-sm text-gray-400 truncate">{product.shop?.name}</p>
+                    <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400">{product.category}</span>
+                    <h3 className="font-semibold truncate mt-2">{product.title}</h3>
                     <p className="text-lg font-bold text-green-400 mt-2">${product.price.toFixed(2)}</p>
+                    {user?.role === "admin" && (
+                      <button onClick={(e) => { e.stopPropagation(); deleteProduct(product.id); }} className="mt-2 p-2 rounded bg-red-500/20 text-red-400">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               ))}
@@ -555,71 +519,21 @@ export default function AshopPage() {
           </div>
         )}
 
-        {/* My Shop View */}
-        {view === "myshop" && user && (
-          <div className="max-w-7xl mx-auto">
-            {!myShop ? (
-              <div className="text-center py-20">
-                <Store className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                <h2 className="text-2xl font-bold mb-4">You don't have a shop yet</h2>
-                <button onClick={() => setShowCreateShop(true)} className="px-6 py-3 rounded-xl bg-green-500 text-black font-semibold hover:bg-green-400">
-                  Create Shop
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-2xl font-bold">{myShop.name}</h2>
-                    <p className="text-gray-400">{myShop.description || "No description"}</p>
-                  </div>
-                  <button onClick={() => setShowCreateProduct(true)} className="px-4 py-2 rounded-lg bg-green-500 text-black font-medium flex items-center gap-2">
-                    <Plus className="w-4 h-4" /> Add Product
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {myProducts.map((product) => (
-                    <div key={product.id} className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden">
-                      <div className="aspect-video bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center">
-                        {product.thumbnailUrl ? (
-                          <img src={product.thumbnailUrl} alt={product.title} className="w-full h-full object-cover" />
-                        ) : (
-                          <Package className="w-12 h-12 text-green-400" />
-                        )}
-                      </div>
-                      <div className="p-4">
-                        <h3 className="font-semibold truncate">{product.title}</h3>
-                        <p className="text-lg font-bold text-green-400 mt-2">${product.price.toFixed(2)}</p>
-                        <div className="flex gap-2 mt-3">
-                          <button onClick={() => deleteProduct(product.id)} className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
         {/* Orders View */}
         {view === "orders" && user && (
           <div className="max-w-7xl mx-auto">
-            <h2 className="text-2xl font-bold mb-6">My Orders</h2>
+            <h2 className="text-2xl font-bold mb-6">My Purchases</h2>
             {orders.length === 0 ? (
               <div className="text-center py-20">
                 <ShoppingCart className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                <p className="text-gray-400">No orders yet</p>
+                <p className="text-gray-400">No purchases yet</p>
               </div>
             ) : (
               <div className="space-y-4">
                 {orders.map((order) => (
                   <div key={order.id} className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <Package className="w-10 h-10 text-green-400" />
+                      <FileCode className="w-10 h-10 text-green-400" />
                       <div>
                         <h3 className="font-semibold">{order.product.title}</h3>
                         <p className="text-sm text-gray-400">{new Date(order.createdAt).toLocaleDateString()}</p>
@@ -647,26 +561,70 @@ export default function AshopPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
               <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-6">
-                <Users className="w-8 h-8 text-green-400 mb-2" />
-                <p className="text-2xl font-bold">{stats.users}</p>
-                <p className="text-sm text-gray-400">Users</p>
-              </div>
-              <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-6">
-                <Store className="w-8 h-8 text-green-400 mb-2" />
-                <p className="text-2xl font-bold">{stats.shops}</p>
-                <p className="text-sm text-gray-400">Shops</p>
-              </div>
-              <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-6">
                 <Package className="w-8 h-8 text-green-400 mb-2" />
                 <p className="text-2xl font-bold">{stats.products}</p>
                 <p className="text-sm text-gray-400">Products</p>
+              </div>
+              <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-6">
+                <ShoppingCart className="w-8 h-8 text-green-400 mb-2" />
+                <p className="text-2xl font-bold">{stats.orders}</p>
+                <p className="text-sm text-gray-400">Orders</p>
               </div>
               <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-6">
                 <DollarSign className="w-8 h-8 text-green-400 mb-2" />
                 <p className="text-2xl font-bold">${stats.revenue.toFixed(2)}</p>
                 <p className="text-sm text-gray-400">Revenue</p>
               </div>
+              <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-6">
+                <Briefcase className="w-8 h-8 text-yellow-400 mb-2" />
+                <p className="text-2xl font-bold">{stats.hireRequests}</p>
+                <p className="text-sm text-gray-400">Pending Hires</p>
+              </div>
             </div>
+
+            {/* Hire Requests */}
+            {stats.pendingHireRequests.length > 0 && (
+              <div className="mb-8">
+                <h3 className="text-xl font-bold mb-4">Pending Hire Requests</h3>
+                <div className="space-y-4">
+                  {stats.pendingHireRequests.map((req) => (
+                    <div key={req.id} className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h4 className="font-semibold">{req.projectName}</h4>
+                          <p className="text-sm text-gray-400">From: {req.name} ({req.email})</p>
+                          <p className="text-sm text-gray-400">Budget: ${req.budget}</p>
+                          {req.timeline && <p className="text-sm text-gray-400">Timeline: {req.timeline}</p>}
+                          <p className="text-sm mt-2">{req.description}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => updateHireStatus(req.id, "accepted")} className="px-3 py-1 rounded bg-green-500/20 text-green-400 text-sm">Accept</button>
+                          <button onClick={() => updateHireStatus(req.id, "rejected")} className="px-3 py-1 rounded bg-red-500/20 text-red-400 text-sm">Reject</button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Recent Orders */}
+            {stats.recentOrders.length > 0 && (
+              <div>
+                <h3 className="text-xl font-bold mb-4">Recent Orders</h3>
+                <div className="space-y-2">
+                  {stats.recentOrders.map((order) => (
+                    <div key={order.id} className="bg-[var(--card)] rounded-lg border border-[var(--border)] p-3 flex items-center justify-between">
+                      <div>
+                        <span className="font-medium">{order.product.title}</span>
+                        <span className="text-sm text-gray-400 ml-2">({order.email})</span>
+                      </div>
+                      <span className="text-green-400 font-bold">${order.amount}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -691,8 +649,8 @@ export default function AshopPage() {
               <div className="space-y-4">
                 <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
                 <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
-                <button onClick={handleAuth} className="w-full py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold">
-                  {authMode === "login" ? "Login" : "Create Account"}
+                <button onClick={handleAuth} disabled={loading} className="w-full py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold">
+                  {loading ? "Please wait..." : authMode === "login" ? "Login" : "Create Account"}
                 </button>
               </div>
             </motion.div>
@@ -700,37 +658,61 @@ export default function AshopPage() {
         )}
       </AnimatePresence>
 
-      {/* Create Shop Modal */}
+      {/* Hire Me Modal */}
       <AnimatePresence>
-        {showCreateShop && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowCreateShop(false)}>
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} onClick={(e) => e.stopPropagation()} className="bg-[var(--card)] rounded-2xl border border-[var(--border)] p-6 w-full max-w-md mx-4">
-              <h3 className="text-lg font-semibold mb-4">Create Shop</h3>
-              <input type="text" placeholder="Shop name" value={shopName} onChange={(e) => setShopName(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none mb-4" />
-              <textarea placeholder="Description (optional)" value={shopDesc} onChange={(e) => setShopDesc(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none mb-4 h-24 resize-none" />
-              <div className="flex gap-2">
-                <button onClick={() => setShowCreateShop(false)} className="flex-1 py-3 rounded-xl border border-[var(--border)] hover:bg-[var(--background)]">Cancel</button>
-                <button onClick={createShop} className="flex-1 py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold">Create</button>
+        {showHire && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowHire(false)}>
+            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} onClick={(e) => e.stopPropagation()} className="bg-[var(--card)] rounded-2xl border border-[var(--border)] p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-semibold">Hire Me</h3>
+                <button onClick={() => setShowHire(false)} className="p-1 rounded hover:bg-[var(--background)]">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-gray-400 mb-4">Looking for a developer? Tell me about your project and I&apos;ll get back to you!</p>
+
+              <div className="space-y-4">
+                <input type="text" placeholder="Your Name *" value={hireName} onChange={(e) => setHireName(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
+                <input type="email" placeholder="Your Email *" value={hireEmail} onChange={(e) => setHireEmail(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
+                <input type="text" placeholder="Project Name *" value={hireProject} onChange={(e) => setHireProject(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
+                <textarea placeholder="Project Description *" value={hireDesc} onChange={(e) => setHireDesc(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none h-24 resize-none" />
+                <input type="number" placeholder="Budget ($) *" value={hireBudget} onChange={(e) => setHireBudget(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
+                <input type="text" placeholder="Timeline (e.g., 2 weeks)" value={hireTimeline} onChange={(e) => setHireTimeline(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
+                <button onClick={submitHireRequest} disabled={loading} className="w-full py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold">
+                  {loading ? "Submitting..." : "Submit Request"}
+                </button>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Create Product Modal */}
+      {/* Add Product Modal */}
       <AnimatePresence>
-        {showCreateProduct && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowCreateProduct(false)}>
+        {showAddProduct && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAddProduct(false)}>
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} onClick={(e) => e.stopPropagation()} className="bg-[var(--card)] rounded-2xl border border-[var(--border)] p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
               <h3 className="text-lg font-semibold mb-4">Add Product</h3>
-              <input type="text" placeholder="Title" value={productTitle} onChange={(e) => setProductTitle(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none mb-4" />
-              <textarea placeholder="Description (optional)" value={productDesc} onChange={(e) => setProductDesc(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none mb-4 h-24 resize-none" />
-              <input type="number" step="0.01" placeholder="Price ($)" value={productPrice} onChange={(e) => setProductPrice(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none mb-4" />
-              <input type="text" placeholder="Thumbnail URL (optional)" value={productThumb} onChange={(e) => setProductThumb(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none mb-4" />
-              <input type="text" placeholder="File URL (optional)" value={productFile} onChange={(e) => setProductFile(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none mb-4" />
-              <div className="flex gap-2">
-                <button onClick={() => setShowCreateProduct(false)} className="flex-1 py-3 rounded-xl border border-[var(--border)] hover:bg-[var(--background)]">Cancel</button>
-                <button onClick={createProduct} className="flex-1 py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold">Create</button>
+              <div className="space-y-4">
+                <input type="text" placeholder="Title *" value={productTitle} onChange={(e) => setProductTitle(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
+                <textarea placeholder="Description" value={productDesc} onChange={(e) => setProductDesc(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none h-24 resize-none" />
+                <input type="number" step="0.01" placeholder="Price ($) *" value={productPrice} onChange={(e) => setProductPrice(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
+                <select value={productCategory} onChange={(e) => setProductCategory(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none">
+                  <option value="source-code">Source Code</option>
+                  <option value="template">Template</option>
+                  <option value="other">Other</option>
+                </select>
+                <input type="text" placeholder="Thumbnail URL" value={productThumb} onChange={(e) => setProductThumb(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
+                <input type="text" placeholder="File URL (download link)" value={productFile} onChange={(e) => setProductFile(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-[var(--background)] border border-[var(--border)] focus:border-green-500 focus:outline-none" />
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={productFeatured} onChange={(e) => setProductFeatured(e.target.checked)} className="rounded" />
+                  <span className="text-sm">Featured product</span>
+                </label>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowAddProduct(false)} className="flex-1 py-3 rounded-xl border border-[var(--border)] hover:bg-[var(--background)]">Cancel</button>
+                  <button onClick={createProduct} className="flex-1 py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold">Create</button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
@@ -746,27 +728,27 @@ export default function AshopPage() {
                 {showProduct.thumbnailUrl ? (
                   <img src={showProduct.thumbnailUrl} alt={showProduct.title} className="w-full h-full object-cover" />
                 ) : (
-                  <Package className="w-16 h-16 text-green-400" />
+                  <FileCode className="w-16 h-16 text-green-400" />
                 )}
               </div>
               <div className="p-6">
-                <h3 className="text-xl font-bold mb-2">{showProduct.title}</h3>
+                <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400">{showProduct.category}</span>
+                <h3 className="text-xl font-bold mt-2 mb-2">{showProduct.title}</h3>
                 <p className="text-gray-400 mb-4">{showProduct.description || "No description"}</p>
                 <div className="flex items-center justify-between mb-4">
                   <p className="text-2xl font-bold text-green-400">${showProduct.price.toFixed(2)}</p>
-                  <p className="text-sm text-gray-400">by {showProduct.shop?.name}</p>
                 </div>
                 {isPurchased(showProduct.id) ? (
-                  <div className="flex items-center gap-2 text-green-400">
-                    <Download className="w-5 h-5" />
-                    {showProduct.fileUrl ? (
-                      <a href={showProduct.fileUrl} target="_blank" rel="noopener noreferrer" className="font-medium">Download</a>
-                    ) : (
-                      <span>Purchased - No file</span>
+                  <div className="space-y-2">
+                    <p className="text-green-400 text-center">You already own this product</p>
+                    {showProduct.fileUrl && (
+                      <a href={showProduct.fileUrl} target="_blank" rel="noopener noreferrer" className="w-full py-3 rounded-xl bg-green-500 text-black font-semibold flex items-center justify-center gap-2">
+                        <Download className="w-5 h-5" /> Download
+                      </a>
                     )}
                   </div>
                 ) : (
-                  <button onClick={() => buyProduct(showProduct.id)} className="w-full py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold flex items-center justify-center gap-2">
+                  <button onClick={() => buyProduct(showProduct)} className="w-full py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold flex items-center justify-center gap-2">
                     <ShoppingCart className="w-5 h-5" /> Buy Now
                   </button>
                 )}

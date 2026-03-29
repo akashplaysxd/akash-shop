@@ -10,11 +10,6 @@ export async function GET(
 
     const product = await db.product.findUnique({
       where: { id },
-      include: {
-        shop: {
-          include: { user: { select: { id: true, email: true } } },
-        },
-      },
     });
 
     if (!product) {

@@ -19,41 +19,23 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  shops     Shop[]
-  orders    Order[]
-}
-
-model Shop {
-  id          String    @id @default(cuid())
-  userId      String
-  name        String
-  slug        String    @unique  // For shareable URLs like ashop.qzz.io/my-shop
-  description String?
-  logoUrl     String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  products  Product[]
-
-  @@index([userId])
+  orders         Order[]
+  hireRequests   HireRequest[]
 }
 
 model Product {
   id           String   @id @default(cuid())
-  shopId       String
   title        String
   description  String?
   price        Float
+  category     String   @default("source-code") // source-code, template, other
   fileUrl      String?
   thumbnailUrl String?
+  featured     Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  shop    Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
   orders  Order[]
-
-  @@index([shopId])
 }
 
 model Order {
@@ -61,7 +43,8 @@ model Order {
   userId    String
   productId String
   amount    Float
-  status    String   @default("completed") // pending, completed, failed, refunded
+  status    String   @default("completed")
+  email     String   // Buyer email for contact
   createdAt DateTime @default(now())
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -71,10 +54,27 @@ model Order {
   @@index([productId])
 }
 
+model HireRequest {
+  id          String   @id @default(cuid())
+  userId      String?
+  name        String
+  email       String
+  projectName String
+  description String
+  budget      Float
+  timeline    String?  // e.g., "2 weeks", "1 month"
+  status      String   @default("pending") // pending, accepted, rejected, completed
+  createdAt   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
 model Notification {
   id        String   @id @default(cuid())
   message   String
-  type      String   @default("user") // admin, user
+  type      String   @default("admin")
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 }

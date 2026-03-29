@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 
 // GET - Get user's orders or all orders (admin)
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const session = await getSession();
 
@@ -11,14 +11,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId");
-
-    if (session.role === "admin" && !userId) {
-      // Admin can see all orders
+    if (session.role === "admin") {
+      // Admin sees all orders
       const orders = await db.order.findMany({
         include: {
-          user: { select: { id: true, email: true } },
           product: { select: { id: true, title: true, price: true } },
         },
         orderBy: { createdAt: "desc" },
@@ -30,9 +26,7 @@ export async function GET(request: Request) {
     const orders = await db.order.findMany({
       where: { userId: session.userId },
       include: {
-        product: {
-          include: { shop: { select: { id: true, name: true } } },
-        },
+        product: true,
       },
       orderBy: { createdAt: "desc" },
     });
@@ -48,15 +42,10 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const session = await getSession();
+    const { productId, email } = await request.json();
 
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { productId } = await request.json();
-
-    if (!productId) {
-      return NextResponse.json({ error: "Product ID required" }, { status: 400 });
+    if (!productId || !email) {
+      return NextResponse.json({ error: "Product ID and email required" }, { status: 400 });
     }
 
     // Get product
@@ -66,26 +55,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    // Check if already purchased
-    const existing = await db.order.findFirst({
-      where: { userId: session.userId, productId },
-    });
+    // Create or get user
+    let userId = session?.userId;
+    if (!userId) {
+      const existingUser = await db.user.findUnique({ where: { email } });
+      if (existingUser) {
+        userId = existingUser.id;
+      }
+    }
 
-    if (existing) {
-      return NextResponse.json({ error: "Already purchased" }, { status: 400 });
+    // Check if already purchased
+    if (userId) {
+      const existing = await db.order.findFirst({
+        where: { userId, productId },
+      });
+      if (existing) {
+        return NextResponse.json({ error: "Already purchased" }, { status: 400 });
+      }
     }
 
     // Create order
     const order = await db.order.create({
       data: {
-        userId: session.userId,
+        userId: userId || "guest",
         productId,
         amount: product.price,
+        email,
         status: "completed",
       },
-      include: {
-        product: true,
-      },
+      include: { product: true },
     });
 
     // Create notification
