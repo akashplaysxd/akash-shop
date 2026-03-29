@@ -2,6 +2,16 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 
+// Generate URL-friendly slug from name
+function generateSlug(name: string): string {
+  const baseSlug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const randomSuffix = Math.random().toString(36).substring(2, 6);
+  return `${baseSlug}-${randomSuffix}`;
+}
+
 // GET - Get all shops or user's shops
 export async function GET(request: Request) {
   try {
@@ -49,10 +59,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Shop name required" }, { status: 400 });
     }
 
+    // Generate unique slug
+    let slug = generateSlug(name);
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await db.shop.findUnique({ where: { slug } });
+      if (!existing) break;
+      slug = generateSlug(name);
+      attempts++;
+    }
+
     const shop = await db.shop.create({
       data: {
         userId: session.userId,
         name,
+        slug,
         description,
         logoUrl,
       },
